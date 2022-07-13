@@ -14,15 +14,21 @@ using FastTunnel.Core.Models;
 using FastTunnel.Core.Protocol;
 using FastTunnel.Core.Server;
 using Microsoft.AspNetCore.Connections;
+using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http;
 
 namespace FastTunnel.Core.Forwarder;
 
 public class FastTunelProtocol
 {
+    HttpParser<HttpHandler> httpParser;
+    HttpHandler HttpHandler;
+
     public FastTunelProtocol(ConnectionContext context, FastTunnelServer fastTunnelServer)
     {
         this.context = context;
         this.fastTunnelServer = fastTunnelServer;
+        httpParser = new HttpParser<HttpHandler>(true);
+        HttpHandler = new HttpHandler();
     }
 
     bool IsFastTunnel => Method == ProtocolConst.HTTP_METHOD_SWAP || MatchWeb != null;
@@ -39,6 +45,76 @@ public class FastTunelProtocol
     private const byte ByteLF = (byte)'\n';
     private const byte ByteColon = (byte)':';
     private const byte ByteSpace = (byte)' ';
+
+    private bool Parse(ReadOnlySequence<byte> result, out SequencePosition consumed)
+    {
+        var reader = new SequenceReader<byte>(result);
+        var success = httpParser.ParseHeaders(HttpHandler, ref reader);
+        consumed = reader.Position;
+        return success;
+    }
+
+    internal async Task TryAnalysisPipeV2Async()
+    {
+        var _input = Transport.Input;
+
+        ReadResult result;
+        ReadOnlySequence<byte> readableBuffer;
+
+        result = await _input.ReadAsync();
+        readableBuffer = result.Buffer;
+        SequencePosition start = readableBuffer.Start;
+        var position = readableBuffer.PositionOf(ByteLF);
+        var FirstLine = UTF8Encoding.UTF8.GetString(readableBuffer.Slice(0, position.Value));
+        Method = FirstLine.Substring(0, FirstLine.IndexOf(" ")).ToUpper();
+
+        switch (Method)
+        {
+            case ProtocolConst.HTTP_METHOD_SWAP:
+                // 客户端发起消息互转
+                var endIndex = FirstLine.IndexOf(" ", 7);
+                MessageId = FirstLine.Substring(7, endIndex - 7);
+                break;
+            default:
+                // 常规Http请求，需要检查Host决定是否进行代理
+                break;
+        }
+
+        var readedPosition = readableBuffer.GetPosition(1, position.Value);
+
+        if (!Parse(result.Buffer.Slice(readedPosition), out SequencePosition consumed))
+        {
+            throw new Exception("解析header失败");
+        };
+
+        if (HttpHandler.Headers.TryGetValue("Host", out string host))
+        {
+            // 匹配Host，
+            if (fastTunnelServer.TryGetWebProxyByHost(host.Split(":")[0], out var web))
+            {
+                MatchWeb = web;
+            }
+        }
+
+        if (IsFastTunnel)
+        {
+            context.Features.Set<IFastTunnelFeature>(new FastTunnelFeature()
+            {
+                MatchWeb = MatchWeb,
+                Method = Method,
+                Host = Host,
+                MessageId = MessageId,
+            });
+
+            if (Method == ProtocolConst.HTTP_METHOD_SWAP)
+            {
+                _input.AdvanceTo(consumed, consumed);
+                return;
+            }
+        }
+
+        _input.AdvanceTo(start, start);
+    }
 
     internal async Task TryAnalysisPipeAsync()
     {
