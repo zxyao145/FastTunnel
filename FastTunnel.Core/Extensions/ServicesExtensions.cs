@@ -86,7 +86,10 @@ public static class ServicesExtensions
         {
             var options = context.RequestServices.GetRequiredService<IOptionsMonitor<DefaultServerConfig>>();
             var host = context.Request.Host.Host;
-            if (!host.EndsWith(options.CurrentValue.WebDomain) || host.Equals(options.CurrentValue.WebDomain))
+            if (
+            !host.EndsWith(options.CurrentValue.WebDomain)
+            //|| host.Equals(options.CurrentValue.WebDomain)
+            )
             {
                 context.Response.StatusCode = 404;
                 return Task.CompletedTask;

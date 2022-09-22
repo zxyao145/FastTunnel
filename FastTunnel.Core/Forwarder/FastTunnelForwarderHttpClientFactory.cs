@@ -48,13 +48,15 @@ namespace FastTunnel.Core.Forwarder
         private async ValueTask<Stream> ConnectCallback(SocketsHttpConnectionContext context, CancellationToken cancellationToken)
         {
             var host = context.InitialRequestMessage.RequestUri.Host;
-
+            var port = _httpContextAccessor.HttpContext.Connection.LocalPort;
+            //var path = context.InitialRequestMessage.RequestUri.AbsolutePath.Split("/")[1];
+            var key = $"{host}:{port}";
             var contextRequest = _httpContextAccessor.HttpContext;
             //var lifetime = contextRequest.Features.Get<IConnectionLifetimeFeature>()!;
 
             try
             {
-                var res = await proxyAsync(host, context, contextRequest.RequestAborted);
+                var res = await proxyAsync(key, context, contextRequest.RequestAborted);
                 return res;
             }
             catch (Exception)
@@ -63,19 +65,19 @@ namespace FastTunnel.Core.Forwarder
             }
         }
 
-        public async ValueTask<Stream> proxyAsync(string host, SocketsHttpConnectionContext context, CancellationToken cancellation)
+        public async ValueTask<Stream> proxyAsync(string hostPort, SocketsHttpConnectionContext context, CancellationToken cancellation)
         {
             WebInfo web;
-            if (!fastTunnelServer.WebList.TryGetValue(host, out web))
+            if (!fastTunnelServer.WebList.TryGetValue(hostPort, out web))
             {
                 // 客户端已离线
-                return await OfflinePage(host, context);
+                return await OfflinePage(hostPort, context);
             }
 
             var msgId = Guid.NewGuid().ToString().Replace("-", "");
 
             TaskCompletionSource<Stream> tcs = new();
-            logger.LogDebug($"[Http]Swap开始 {msgId}|{host}=>{web.WebConfig.LocalIp}:{web.WebConfig.LocalPort}");
+            logger.LogDebug($"[Http]Swap开始 {msgId}|{hostPort}=>{web.WebConfig.LocalIp}:{web.WebConfig.LocalPort}");
 
             cancellation.Register(() =>
             {
@@ -97,7 +99,7 @@ namespace FastTunnel.Core.Forwarder
             catch (WebSocketException)
             {
                 // 通讯异常，返回客户端离线
-                return await OfflinePage(host, context);
+                return await OfflinePage(hostPort, context);
             }
             catch (Exception)
             {

@@ -47,14 +47,17 @@ public class LoginHandler : ILoginHandler
             hasTunnel = true;
             foreach (var item in requet.Webs)
             {
-                var hostName = $"{item.SubDomain}.{server.ServerOption.CurrentValue.WebDomain}".Trim().ToLower();
+                var hostName = $"{server.ServerOption.CurrentValue.WebDomain}".Trim().ToLower();
+                var hostPort = $"{hostName}:{client.ConnectionPort}";
                 var info = new WebInfo { Socket = client.webSocket, WebConfig = item };
 
-                logger.LogDebug($"new domain '{hostName}'");
-                server.WebList.AddOrUpdate(hostName, info, (key, oldInfo) => { return info; });
-                (proxyConfig as FastTunnelInMemoryConfigProvider).AddWeb(hostName);
+                logger.LogDebug($"new domain '{hostPort}'");
+                server.WebList.AddOrUpdate(hostPort, info, (key, oldInfo) => { return info; });
+                (proxyConfig as FastTunnelInMemoryConfigProvider).AddWeb(
+                    server.ServerOption.CurrentValue.WebDomain
+                );
 
-                await client.webSocket.SendCmdAsync(MessageType.Log, $"  HTTP   | http://{hostName}:{client.ConnectionPort} => {item.LocalIp}:{item.LocalPort}", CancellationToken.None);
+                await client.webSocket.SendCmdAsync(MessageType.Log, $"  HTTP   | http://{hostPort} => {item.LocalIp}:{item.LocalPort}", CancellationToken.None);
                 client.AddWeb(info);
 
                 if (item.WWW != null)

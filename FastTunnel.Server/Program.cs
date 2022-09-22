@@ -4,6 +4,7 @@
 //     https://github.com/FastTunnel/FastTunnel/edit/v2/LICENSE
 // Copyright (c) 2019 Gui.H
 
+using System.Text;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
@@ -37,6 +38,12 @@ public class Program
                     var env = hostingContext.HostingEnvironment;
                     config.AddJsonFile("config/appsettings.json", optional: false, reloadOnChange: true)
                           .AddJsonFile($"config/appsettings.{env.EnvironmentName}.json", optional: true, reloadOnChange: true);
+                });
+
+                webHostBuilder.UseKestrel(options =>
+                {
+                    options.ResponseHeaderEncodingSelector = _ => Encoding.UTF8;
+                    options.RequestHeaderEncodingSelector = _ => Encoding.UTF8;
                 });
             })
             .ConfigureWebHostDefaults(webBuilder =>
